@@ -1,1 +1,1 @@
-# DP-LSGD
+The codes for the experiments implemented in the paper "WHY DP "LOCAL" SGD – FASTER CONVERGENCE IN LESS COMPOSITION WITH CLIPPING BIAS REDUCTION". Select the training data of interest and determine the hyperparameters such as number of epoch, local iteration number, batchsize, (epsilon,delta) DP budget, inner and outer step size in the model_local.py. 
