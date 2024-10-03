@@ -71,13 +71,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--epoch', type=int, default=80,help='epoch')
     parser.add_argument('--batch_size', type=int, default=250, help='batch_size')
-    parser.add_argument('--learning_rate', type=int, default=2, help='learning_rate')
+    parser.add_argument('--learning_rate', type=int, default=1, help='learning_rate')
     parser.add_argument('--clip_threshold', type=int, default=1, help='clip_threshold')
     #parser.add_argument('--noise_multiplier', type=float, default=1.226, help='noise_multiplier')
     parser.add_argument('--self_aug', type=int, default=8, help='self_aug')
-    parser.add_argument('--accumulation_steps', type=int, default=10, help='accumulation_steps:串行训练，每迭代accumulation_steps次更新网络')
-    parser.add_argument('--chain_len', type=int, default=1, help='chain_length')
-    parser.add_argument('--lr_0', type=float, default=1, help='lr_0')
+    parser.add_argument('--accumulation_steps', type=int, default=10, help='accumulation_steps: sequential implementation under memory constraints which updates model after accumulation_steps')
+    parser.add_argument('--chain_len', type=int, default=10, help='chain_length')
+    parser.add_argument('--lr_0', type=float, default=0.025, help='lr_0')
     parser.add_argument('--epsilon', type=float, default=6, help='lr_0')
     parser.add_argument('--model', type=str, default='wid_res_40', help='[resnet20,wid_res16,wid_res_40]')
     parser.add_argument('--True_batch_size', help='batch_size*accumulation_steps')
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     DATASET_PATH = './data'
     torch.backends.cudnn.benchmark = True
 
-    # 准备数据
+    # data preprocessing 
     data_transforms = {
         'train': transforms.Compose([
             transforms.ToTensor(),
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     data_transforms_input = T.Compose([
         # T.ToPILImage(),
         # T.AutoAugment(T.AutoAugmentPolicy.CIFAR10),
-        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),  # 均值，标准差
+        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),  
         T.RandomCrop(size=(32, 32), padding=4),
         T.RandomHorizontalFlip(),
         # T.RandomRotation(degrees=(-10, 10),),
@@ -139,10 +139,10 @@ if __name__ == "__main__":
     total_step = {
         'train': 0, 'valid': 0
     }
-    # 记录开始时间
+    # Record start time 
     since = time.time()
     clip_threshold = arg.clip_threshold
-    noise_multiplier= 0.85*get_std(q=arg.batch_size * arg.accumulation_steps / 50000,EPOCH=arg.epoch, epsilon=arg.epsilon, delta=1e-5, verbose=True)
+    noise_multiplier= get_std(q=arg.batch_size * arg.accumulation_steps / 50000,EPOCH=arg.epoch, epsilon=arg.epsilon, delta=1e-5, verbose=True)
     opt = optim.SGD(model.parameters(), lr=arg.learning_rate, momentum=0.75, weight_decay=1e-4)
     ema = ema.ExponentialMovingAverage(model.parameters(), decay=0.999)
 
@@ -151,7 +151,7 @@ if __name__ == "__main__":
         print('-' * 10)
         print()
         for phase in ['train']:
-            model.train()  # 训练
+            model.train() 
             running_loss = 0.0
             running_corrects = 0
             grad_list = []
@@ -183,7 +183,7 @@ if __name__ == "__main__":
                 model_10_grad_sample_list = per_grad_list
                 #clip_threshold = sampling_noise_summary(0, model_10_grad_sample_list)
                 per_sample_clip_factor = []
-                for i in range(len(labels)):   # 计算clip_factor
+                for i in range(len(labels)):   
                     for j in range(len(model_10_grad_sample_list)):
                         model_j = model_10_grad_sample_list[j]
                         model_j_i = model_j[i]
@@ -217,7 +217,7 @@ if __name__ == "__main__":
                         p.grad = grad_list[num_network] / accumulation_steps
                         p.grad += (clip_threshold * noise_multiplier * torch.randn_like(p.grad)) / (batch_size * accumulation_steps)  # add noise
                         num_network = num_network + 1
-                    opt.step()  # 优化权重
+                    opt.step()  
 
                     ema.update()  # Parameter averaging (exponential moving average)
 
@@ -225,14 +225,14 @@ if __name__ == "__main__":
                     grad_list = []
                 opt.zero_grad()
                 running_loss += 0
-                running_corrects += (preds == labels).sum()  # 计算预测正确总个数
+                running_corrects += (preds == labels).sum() 
                 total_step[phase] += 1
-            epoch_loss = running_loss / len(dataloaders['train'].sampler)  # 当前轮的总体平均损失值
-            epoch_acc = float(running_corrects) / len(dataloaders['train'].sampler)  # 当前轮的总正确率
+            epoch_loss = running_loss / len(dataloaders['train'].sampler)  
+            epoch_acc = float(running_corrects) / len(dataloaders['train'].sampler)  
             time_elapsed = time.time() - since
 
             print()
-            print('当前总耗时 {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+            print('total time consumed {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
             print('{} Loss: {:.4f}[{}] Acc: {:.4f}'.format('train', epoch_loss, counter, epoch_acc))
 
             for phase in ['valid']:
@@ -248,13 +248,13 @@ if __name__ == "__main__":
                         _, preds = torch.max(outputs, 1)
                     running_loss += loss.item() * inputs.size(0)
                     running_corrects += (preds == labels).sum()
-                    # 每个batch加1次
+                   
                     total_step[phase] += 1
-                epoch_loss = running_loss / len(dataloaders['valid'].sampler)  # 当前轮的总体平均损失值
-                epoch_acc = float(running_corrects) / len(dataloaders['valid'].sampler)  # 当前轮的总正确率
+                epoch_loss = running_loss / len(dataloaders['valid'].sampler)  
+                epoch_acc = float(running_corrects) / len(dataloaders['valid'].sampler)  
                 time_elapsed = time.time() - since
                 print()
-                print('当前总耗时 {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+                print('Total time consumed {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
                 print('{} Loss: {:.4f}[{}] Acc: {:.4f}'.format('valid', epoch_loss, counter, epoch_acc))
 
 
